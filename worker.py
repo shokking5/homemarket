@@ -473,12 +473,13 @@ class ChatWorker(threading.Thread):
                 # End the loop
                 break
         # Create an inline keyboard with a single skip button
-        cancel = telegram.InlineKeyboardMarkup([[telegram.InlineKeyboardButton(strings.menu_skip,
+        ''' cancel = telegram.InlineKeyboardMarkup([[telegram.InlineKeyboardButton(strings.menu_skip,
                                                                                callback_data="cmd_cancel")]])
+                                                                               '''
         # Ask if the user wants to add notes to the order
-        self.bot.send_message(self.chat.id, strings.ask_order_notes, reply_markup=cancel)
-        # Wait for user input
+        self.bot.send_message(self.chat.id, strings.ask_order_notes)
         notes = self.__wait_for_regex(r"(.*)", cancellable=True)
+
         # Create a new Order
         order = db.Order(user=self.user,
                          creation_date=datetime.datetime.now(),
