@@ -31,7 +31,7 @@ order_format_string = "От {user}\n" \
                       "{items}\n" \
                       "ИТОГ: <b>{value}</b>\n" \
                       "\n" \
-                      "Комментарий пользователя: {notes}\n."
+                      "Комментарий пользователя: {notes}.\n"
 
 # Order info string, shown to the user
 user_order_format_string = "{status_emoji} <b>Заказ {status_text}</b>\n" \

@@ -13,6 +13,8 @@ from hashlib import sha1
 from binascii import hexlify
 import time
 
+
+
 language = configloader.config["Config"]["language"]
 strings = importlib.import_module("strings." + language)
 
@@ -251,8 +253,10 @@ class Order(TableDeclarativeBase):
     items: typing.List["OrderItem"] = relationship("OrderItem")
     # Extra details specified by the purchasing user
     notes = Column(Text)
+    total_cost = Column(BigInteger, default=0)
     # Linked transaction
     transaction = relationship("Transaction", uselist=False)
+    refunded = Column(Boolean, default=False)
 
     # Extra table parameters
     __tablename__ = "orders"
@@ -288,8 +292,9 @@ class Order(TableDeclarativeBase):
             return link
 
     def get_text(self, session, user=False):
-        joined_self = session.query(Order).filter_by(order_id=self.order_id).join(Transaction).one()
+        # joined_self = session.query(Order).filter_by(order_id=self.order_id).join(Transaction).one()
         items = ""
+        value = self.total_cost
         for item in self.items:
             items += str(item) + "\n"
         if self.delivery_date is not None:
@@ -306,16 +311,16 @@ class Order(TableDeclarativeBase):
                                                            status_text=status_text,
                                                            items=items,
                                                            notes=self.notes,
-                                                           value=str(utils.Price(-joined_self.transaction.value))) + \
+                                                           value=str(value)) + \
                    (strings.refund_reason.format(reason=self.refund_reason) if self.refund_date is not None else "")
         else:
             return status_emoji + " " + \
                    strings.order_number.format(id=self.order_id) + "\n" + \
                    strings.order_format_string.format(user=self.user.mention(),
-                                                      date=self.creation_date.isoformat(),
+                                                      date=self.creation_date.ctime(),
                                                       items=items,
                                                       notes=self.notes if self.notes is not None else "",
-                                                      value=str(utils.Price(-joined_self.transaction.value))) + \
+                                                      value=str(value)) + \
                    (strings.refund_reason.format(reason=self.refund_reason) if self.refund_date is not None else "")
 
 

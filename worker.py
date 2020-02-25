@@ -19,6 +19,7 @@ language = configloader.config["Config"]["language"]
 strings = importlib.import_module("strings." + language)
 SMALL_BUTTONS = True
 
+
 class StopSignal:
     """A data class that should be sent to the worker when the conversation has to be stopped abnormally."""
 
@@ -273,7 +274,7 @@ class ChatWorker(threading.Thread):
         for user in users:
             keyboard_buttons.append([user.identifiable_str()])
         # Create the keyboard
-        keyboard = telegram.ReplyKeyboardMarkup(keyboard_buttons, SMALL_BUTTONS,  one_time_keyboard=True)
+        keyboard = telegram.ReplyKeyboardMarkup(keyboard_buttons, SMALL_BUTTONS, one_time_keyboard=True)
         # Keep asking until a result is returned
         while True:
             # Send the keyboard
@@ -298,15 +299,16 @@ class ChatWorker(threading.Thread):
         while True:
             # Create a keyboard with the user main menu
             keyboard = [[telegram.KeyboardButton(strings.menu_order)],
-                        #[telegram.KeyboardButton(strings.menu_order_status)],
+                        # [telegram.KeyboardButton(strings.menu_order_status)],
                         # [telegram.KeyboardButton(strings.menu_add_credit)],
                         [telegram.KeyboardButton(strings.menu_help)]
-                        #telegram.KeyboardButton(strings.menu_bot_info)
+                        # telegram.KeyboardButton(strings.menu_bot_info)
                         ]
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id,
                                   strings.conversation_open_user_menu.format(credit=utils.Price(self.user.credit)),
-                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS, one_time_keyboard=True))
+                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                            one_time_keyboard=True))
             # Wait for a reply from the user
             selection = self.__wait_for_specific_message([strings.menu_order, strings.menu_order_status,
                                                           strings.menu_add_credit, strings.menu_bot_info,
@@ -486,7 +488,8 @@ class ChatWorker(threading.Thread):
                          notes=notes if not isinstance(notes, CancelSignal) else "")
         # Add the record to the session and get an ID
         self.session.add(order)
-        self.session.flush()
+        self.session.commit()
+        # self.session.flush()
         # For each product added to the cart, create a new OrderItem and get the total value
         value = 0
         total_name = "".join([f"{name} x{count}\n" for name, count in
@@ -502,55 +505,61 @@ class ChatWorker(threading.Thread):
                                           order_id=order.order_id)
                 self.session.add(order_item)
 
-        # self.session.flush()
+        # self.session.commit()
+        order.total_cost = value
 
-        while True:
-            inline_keyboard_payment = telegram.InlineKeyboardMarkup([
-                [telegram.InlineKeyboardButton(strings.payment_done,
-                                               callback_data="payment_done")],
-                [telegram.InlineKeyboardButton(strings.payment_cancel,
-                                               callback_data="payment_cancel")],
-            ])
-            if MAX_VALUE >= value >= MIN_VALUE:
+        inline_keyboard_payment = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(strings.payment_done,
+                                           callback_data="payment_done")],
+            [telegram.InlineKeyboardButton(strings.payment_cancel,
+                                           callback_data="payment_cancel")],
+        ])
+        if MAX_VALUE >= value >= MIN_VALUE:
+            self.bot.send_message(self.chat.id,
+                                  strings.success_order_created.format(
+                                      link=order.create_link(value)
+                                  ),
+                                  reply_markup=inline_keyboard_payment)
+        elif value > MAX_VALUE:
+            self.bot.send_message(self.chat.id, strings.fail_order_too_big.format(max=MAX_VALUE))
+            return
+        elif value < MIN_VALUE:
+            self.bot.send_message(self.chat.id, strings.fail_order_too_small.format(min=MIN_VALUE))
+            return
+        # Wait for an user answer
+        callback = self.__wait_for_inlinekeyboard_callback()
+
+        if callback.data == "payment_done":
+            if order.check_payment(value):
+                self.bot.send_message(self.chat.id, strings.successfull_payment)
+            else:
                 self.bot.send_message(self.chat.id,
-                                      strings.success_order_created.format(
-                                          link=order.create_link(value)
-                                      ),
-                                      reply_markup=inline_keyboard_payment)
-            elif value > MAX_VALUE:
-                self.bot.send_message(self.chat.id, strings.fail_order_too_big.format(max=MAX_VALUE))
-                break
-            elif value < MIN_VALUE:
-                self.bot.send_message(self.chat.id, strings.fail_order_too_small.format(min=MIN_VALUE))
-                break
-            # Wait for an user answer
-            callback = self.__wait_for_inlinekeyboard_callback()
+                                      strings.fail_order_payment.format(order_id=order.order_id))
+                self.session.rollback()
+                # self.session.commit()
+                return
 
-            if callback.data == "payment_done":
-                # Notify the admins (in Live Orders mode) of the new order
-                if order.check_payment(value):
-                    self.bot.send_message(self.chat.id, strings.successfull_payment)
-                else:
-                    self.bot.send_message(self.chat.id,
-                                          strings.fail_order_payment.format(order_id=order.order_id))
-                    break
+            # self.session.flush()
+            self.session.commit()
+            admins = self.session.query(db.Admin).filter_by(live_mode=True).all()
+            # Create the order keyboard
+            order_keyboard = telegram.InlineKeyboardMarkup(
+                [
+                    [telegram.InlineKeyboardButton(strings.menu_complete, callback_data="order_complete")],
+                    [telegram.InlineKeyboardButton(strings.menu_refund, callback_data="order_refund")]
+                ])
+            # Notify them of the new placed order
+            for admin in admins:
+                self.bot.send_message(admin.user_id,
+                                      f"{strings.notification_order_placed.format(order=order.get_text(self.session))}",
+                                      reply_markup=order_keyboard)
+        elif callback.data == "payment_cancel":
+            self.session.rollback()
+            # self.session.commit()
+            return
+        # self.session.flush()
+        self.session.commit()
 
-                self.session.commit()
-                admins = self.session.query(db.Admin).filter_by(live_mode=True).all()
-                # Create the order keyboard
-                order_keyboard = telegram.InlineKeyboardMarkup(
-                    [
-                        [telegram.InlineKeyboardButton(strings.menu_complete, callback_data="order_complete")],
-                        [telegram.InlineKeyboardButton(strings.menu_refund, callback_data="order_refund")]
-                    ])
-                # Notify them of the new placed order
-                for admin in admins:
-                    self.bot.send_message(admin.user_id,
-                                          f"{strings.notification_order_placed.format(order=order.get_text(self.session))}",
-                                          reply_markup=order_keyboard)
-                break
-            elif callback.data == "payment_cancel":
-                break
 
     def __order_status(self):
         """Display the status of the sent orders."""
@@ -565,6 +574,7 @@ class ChatWorker(threading.Thread):
             self.bot.send_message(self.chat.id, strings.error_no_orders)
         # Display the order status to the user
         for order in orders:
+            print(order)
             self.bot.send_message(self.chat.id, order.get_text(self.session, user=True))
         # TODO: maybe add a page displayer instead of showing the latest 5 orders
 
@@ -582,7 +592,8 @@ class ChatWorker(threading.Thread):
         keyboard.append([telegram.KeyboardButton(strings.menu_cancel)])
         # Send the keyboard to the user
         self.bot.send_message(self.chat.id, strings.conversation_payment_method,
-                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS, Sone_time_keyboard=True))
+                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                        Sone_time_keyboard=True))
         # Wait for a reply from the user
         selection = self.__wait_for_specific_message([strings.menu_cash, strings.menu_credit_card, strings.menu_cancel])
         # If the user has selected the Cash option...
@@ -613,7 +624,8 @@ class ChatWorker(threading.Thread):
         while not cancelled:
             # Send the message and the keyboard
             self.bot.send_message(self.chat.id, strings.payment_cc_amount,
-                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS, one_time_keyboard=True))
+                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                            one_time_keyboard=True))
             # Wait until a valid amount is sent
             # TODO: check and debug the regex
             selection = self.__wait_for_regex(r"([0-9]{1,3}(?:[.,][0-9]+)?|" + strings.menu_cancel + r")")
@@ -719,7 +731,8 @@ class ChatWorker(threading.Thread):
             keyboard.append([strings.menu_user_mode])
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id, strings.conversation_open_admin_menu,
-                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,  one_time_keyboard=True),
+                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                            one_time_keyboard=True),
                                   )
             # Wait for a reply from the user
             selection = self.__wait_for_specific_message([strings.menu_products, strings.menu_orders,
@@ -771,7 +784,8 @@ class ChatWorker(threading.Thread):
         keyboard = [[telegram.KeyboardButton(product_name)] for product_name in product_names]
         # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
         self.bot.send_message(self.chat.id, strings.conversation_admin_select_product,
-                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,  one_time_keyboard=True))
+                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                        one_time_keyboard=True))
         # Wait for a reply from the user
         selection = self.__wait_for_specific_message(product_names)
         # If the user has selected the Cancel option...
@@ -893,7 +907,8 @@ class ChatWorker(threading.Thread):
         keyboard = [[telegram.KeyboardButton(product_name)] for product_name in product_names]
         # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
         self.bot.send_message(self.chat.id, strings.conversation_admin_select_product_to_delete,
-                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,  one_time_keyboard=True))
+                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                        one_time_keyboard=True))
         # Wait for a reply from the user
         selection = self.__wait_for_specific_message(product_names)
         if selection == strings.menu_cancel:
@@ -933,9 +948,10 @@ class ChatWorker(threading.Thread):
             # Send the created message
             self.bot.send_message(self.chat.id, order.get_text(session=self.session),
                                   reply_markup=order_keyboard)
-        # Set the Live mode flag to True
+
+        # # Set the Live mode flag to True
         self.admin.live_mode = True
-        # Commit the change to the database
+        # # Commit the change to the database
         self.session.commit()
         while True:
             # Wait for any message to stop the listening mode
@@ -945,9 +961,11 @@ class ChatWorker(threading.Thread):
                 # Stop the listening mode
                 self.admin.live_mode = False
                 break
+
             # Find the order
             order_id = re.search(strings.order_number.replace("{id}", "([0-9]+)"), update.message.text).group(1)
             order = self.session.query(db.Order).filter(db.Order.order_id == order_id).one()
+
             # Check if the order hasn't been already cleared
             if order.delivery_date is not None or order.refund_date is not None:
                 # Notify the admin and skip that order
@@ -983,9 +1001,9 @@ class ChatWorker(threading.Thread):
                 # Save the refund reason
                 order.refund_reason = reply
                 # Refund the credit, reverting the old transaction
-                order.transaction.refunded = True
+                order.refunded = True
                 # Restore the credit to the user
-                order.user.credit -= order.transaction.value
+                # order.user.credit -= order.transaction.value
                 # Commit the changes
                 self.session.commit()
                 # Update the order message
@@ -1047,7 +1065,8 @@ class ChatWorker(threading.Thread):
         # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
         self.bot.send_message(self.chat.id,
                               strings.conversation_open_help_menu,
-                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,  one_time_keyboard=True))
+                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, SMALL_BUTTONS,
+                                                                        one_time_keyboard=True))
         # Wait for a reply from the user
         selection = self.__wait_for_specific_message([strings.menu_guide, strings.menu_contact_shopkeeper,
                                                       strings.menu_cancel])
@@ -1172,7 +1191,8 @@ class ChatWorker(threading.Thread):
         admin = self.session.query(db.Admin).filter_by(user_id=user.user_id).one_or_none()
         if admin is None:
             # Create the keyboard to be sent
-            keyboard = telegram.ReplyKeyboardMarkup([[strings.emoji_yes, strings.emoji_no]], SMALL_BUTTONS,  one_time_keyboard=True)
+            keyboard = telegram.ReplyKeyboardMarkup([[strings.emoji_yes, strings.emoji_no]], SMALL_BUTTONS,
+                                                    one_time_keyboard=True)
             # Ask for confirmation
             self.bot.send_message(self.chat.id, strings.conversation_confirm_admin_promotion, reply_markup=keyboard)
             # Wait for an answer
