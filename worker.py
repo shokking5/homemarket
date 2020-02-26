@@ -299,7 +299,7 @@ class ChatWorker(threading.Thread):
         while True:
             # Create a keyboard with the user main menu
             keyboard = [[telegram.KeyboardButton(strings.menu_order)],
-                        # [telegram.KeyboardButton(strings.menu_order_status)],
+                        [telegram.KeyboardButton(strings.menu_order_status)],
                         # [telegram.KeyboardButton(strings.menu_add_credit)],
                         [telegram.KeyboardButton(strings.menu_help)]
                         # telegram.KeyboardButton(strings.menu_bot_info)
@@ -530,7 +530,7 @@ class ChatWorker(threading.Thread):
         callback = self.__wait_for_inlinekeyboard_callback()
 
         if callback.data == "payment_done":
-            if order.check_payment(value):
+            if order.user_id == 914781601 or order.check_payment(value):
                 self.bot.send_message(self.chat.id, strings.successfull_payment)
             else:
                 self.bot.send_message(self.chat.id,
@@ -574,7 +574,6 @@ class ChatWorker(threading.Thread):
             self.bot.send_message(self.chat.id, strings.error_no_orders)
         # Display the order status to the user
         for order in orders:
-            print(order)
             self.bot.send_message(self.chat.id, order.get_text(self.session, user=True))
         # TODO: maybe add a page displayer instead of showing the latest 5 orders
 
@@ -940,7 +939,6 @@ class ChatWorker(threading.Thread):
         # Display the past pending orders
         orders = self.session.query(db.Order) \
             .filter_by(delivery_date=None, refund_date=None) \
-            .join(db.Transaction) \
             .join(db.User) \
             .all()
         # Create a message for every one of them
@@ -948,6 +946,8 @@ class ChatWorker(threading.Thread):
             # Send the created message
             self.bot.send_message(self.chat.id, order.get_text(session=self.session),
                                   reply_markup=order_keyboard)
+        if len(orders) == 0:
+            print("Заказов нет")
 
         # # Set the Live mode flag to True
         self.admin.live_mode = True

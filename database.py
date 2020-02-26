@@ -13,8 +13,6 @@ from hashlib import sha1
 from binascii import hexlify
 import time
 
-
-
 language = configloader.config["Config"]["language"]
 strings = importlib.import_module("strings." + language)
 
