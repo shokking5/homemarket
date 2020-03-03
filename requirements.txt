@@ -1,4 +1,10 @@
+telegram
+Flask
 python-telegram-bot
 sqlalchemy
 requests
 raven
+django
+gunicorn
+django-heroku
+sentry_sdk

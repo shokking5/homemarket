@@ -11,13 +11,14 @@ import utils
 import importlib
 from hashlib import sha1
 from binascii import hexlify
+from random import randint
 import time
 
 language = configloader.config["Config"]["language"]
 strings = importlib.import_module("strings." + language)
 
 # Create a (lazy) database engine
-engine = create_engine(configloader.config["Database"]["engine"])
+engine = create_engine(configloader.config["Database"]["engine"], connect_args={'timeout': 15})
 
 # Create a base class to define all the database subclasses
 TableDeclarativeBase = declarative_base(bind=engine)
@@ -26,18 +27,12 @@ TableDeclarativeBase = declarative_base(bind=engine)
 Session = sessionmaker()
 
 SERVER_URL = configloader.config["Config"]["SERVER_URL"]
-
+SUCCESS_URL = configloader.config["Config"]["success_url"]
 SECRET = configloader.config["Credit Card"]["yandex_money_secret"]
-
 MIN_VALUE = int(configloader.config["Credit Card"]["min_amount"])
-
 MAX_VALUE = int(configloader.config["Credit Card"]["max_amount"])
-
 YANDEX_MONEY_TOKEN = configloader.config["Credit Card"]["yandex_money_token"]
-
 YANDEX_MONEY_URL = 'https://money.yandex.ru/quickpay/confirm.xml'
-
-success_url = configloader.config["Config"]["success_url"]
 
 
 # Define all the database tables using the sqlalchemy declarative base
@@ -106,6 +101,8 @@ class Product(TableDeclarativeBase):
     image = Column(LargeBinary)
     # Product has been deleted
     deleted = Column(Boolean, nullable=False)
+    # Product is over
+    is_over = Column(Boolean, default=False)
 
     # Extra table parameters
     __tablename__ = "products"
@@ -235,6 +232,7 @@ class Order(TableDeclarativeBase):
     It may include multiple products, available in the OrderItem table."""
 
     # The unique order id
+    rand_id = randint(1000, 100000000)
     order_id = Column(Integer, primary_key=True)
     # The user who placed the order
     user_id = Column(BigInteger, ForeignKey("users.user_id"))
@@ -262,35 +260,46 @@ class Order(TableDeclarativeBase):
     def __repr__(self):
         return f"<Order {self.order_id} placed by User {self.user_id}>"
 
-    def check_payment(self, amount: int):
-        label = f"{self.order_id}:{self.user.user_id}"
-        message = f"{amount}&{label}&{SECRET}".encode()
-        sha1_hash = hexlify(sha1(message).digest()).decode()
+    def check_payment(self, user_id, rand_id, amount: int):
+        try:
+            label = strings.payment_label.format(order_id=rand_id,
+                user_id=user_id)
+            sign = strings.payment_sign.format(amount=amount,
+                                           label=label,
+                                           secret=SECRET).encode()
+            sha1_hash = hexlify(sha1(sign).digest()).decode()
 
-        for i in range(10):
-            data = f"label={label}&amount={amount}&sha1_hash={sha1_hash}"
-            resp = requests.post(SERVER_URL + "/get_payment/", data=data)
-            if resp.text == "True":
+            message = strings.payment_message.format(label=label,
+                                                 amount=amount,
+                                                 sha1_hash=sha1_hash)
+            path = "/remove_payment/"
+            resp = requests.post(SERVER_URL + path, data=message)
+            if resp.text == strings.server_answer_success_payment:
                 return True
-            time.sleep(2)
+        except Exception:
+            pass
         return False
 
-    def create_link(self, value: int):
+    def create_link(self, user_id, rand_id, value: int):
         if value > 0 and (value >= MIN_VALUE or MIN_VALUE == 0) and (value <= MAX_VALUE or MAX_VALUE == 0):
+            label = strings.payment_label.format(order_id=rand_id,
+                                                 user_id=user_id)
             data = {'receiver': YANDEX_MONEY_TOKEN,
-                    'label': f"{self.order_id}:{self.user.user_id}",
-                    'target': "Оплата заказа",
+                    'label': label,
+                    'targets': "Оплата заказа",
                     'sum': value,
                     'quickpay-form': 'shop',
-                    'successURL': success_url}
+                    'paymentType':'AC',
+                    'successURL': SUCCESS_URL}
+
             resp = requests.post(YANDEX_MONEY_URL, data=data)
-            print(f"label={self.order_id}:{self.user.user_id}?amount={value}")
+            print(f"New order:\n  label={self.order_id}:{self.user.user_id}\n  amount={value}")
             request_id = re.search("[\w]{8}-[\w]{4}-[\w]{4}-[\w]{4}-[\w]{4,}", resp.url).group(0)
             link = f"https://money.yandex.ru/new/transfer/quickpay?requestId={request_id}"
+            print(f"label = {label}")
             return link
 
     def get_text(self, session, user=False):
-        # joined_self = session.query(Order).filter_by(order_id=self.order_id).join(Transaction).one()
         items = ""
         value = self.total_cost
         for item in self.items:

@@ -9,6 +9,7 @@ import importlib
 language = configloader.config["Config"]["language"]
 strings = importlib.import_module("strings." + language)
 
+
 def main():
     """The core code of the program. Should be run only in the main process!"""
 
@@ -101,7 +102,7 @@ def main():
                 # Forward the update to the corresponding worker
                 receiving_worker = chat_workers.get(update.pre_checkout_query.from_user.id)
                 # Check if it's the active invoice for this chat
-                if receiving_worker is None or\
+                if receiving_worker is None or \
                         update.pre_checkout_query.invoice_payload != receiving_worker.invoice_payload:
                     # Notify the user that the invoice has expired
                     try:

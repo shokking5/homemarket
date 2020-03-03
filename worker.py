@@ -14,6 +14,8 @@ from html import escape
 import requests
 import importlib
 from database import MIN_VALUE, MAX_VALUE
+from itertools import filterfalse
+from random import randint
 
 language = configloader.config["Config"]["language"]
 strings = importlib.import_module("strings." + language)
@@ -55,7 +57,7 @@ class ChatWorker(threading.Thread):
                 "https://00000000000000000000000000000000:00000000000000000000000000000000@sentry.io/0000000":
             import raven
             self.sentry_client = raven.Client(configloader.config["Error Reporting"]["sentry_token"],
-                                              release=raven.fetch_git_sha(os.path.dirname(__file__)),
+                                              # release=raven.fetch_git_sha(os.path.dirname(__file__)),
                                               environment="Dev" if __debug__ else "Prod")
         else:
             self.sentry_client = None
@@ -102,7 +104,7 @@ class ChatWorker(threading.Thread):
                 # Clear the live orders flag
                 self.admin.live_mode = False
                 # Commit the change
-                self.session.commit()
+                # self.session.commit()
                 # Open the admin menu
                 self.__admin_menu()
         except Exception:
@@ -333,13 +335,13 @@ class ChatWorker(threading.Thread):
             # self.__bot_info()
             # If the user has selected the Help option...
             elif selection == strings.menu_help:
-                # Go to the Help menu
                 self.__help_menu()
+            # Go to the Help menu
 
     def __order_menu(self):
         """User menu to order products from the shop."""
         # Get the products list from the db
-        products = self.session.query(db.Product).filter_by(deleted=False).all()
+        products = self.session.query(db.Product).filter_by(is_over=False, deleted=False).all()
         # Create a dict to be used as 'cart'
         # The key is the message id of the product list
         cart: typing.Dict[typing.List[db.Product, int]] = {}
@@ -488,36 +490,53 @@ class ChatWorker(threading.Thread):
                          notes=notes if not isinstance(notes, CancelSignal) else "")
         # Add the record to the session and get an ID
         self.session.add(order)
-        self.session.commit()
-        # self.session.flush()
         # For each product added to the cart, create a new OrderItem and get the total value
+
         value = 0
-        total_name = "".join([f"{name} x{count}\n" for name, count in
-                              [(cart[product][0].name, cart[product][1]) for product in cart]])
+        overs = ""
+        cart_filtered = {}
+        rand_id = randint(100, 10000000)
+        products = self.session.query(db.Product).filter_by(is_over=False, deleted=False).all()
 
         for product in cart:
-            # Add the price multiplied by the quantity to the total price
-            print(f"{cart[product][0].price} * {cart[product][1]}")
-            value += cart[product][0].price * cart[product][1]
-            # Create {quantity} new OrderItems
-            for i in range(0, cart[product][1]):
-                order_item = db.OrderItem(product=cart[product][0],
-                                          order_id=order.order_id)
-                self.session.add(order_item)
+            if cart[product][0] not in products:
+                overs += cart[product][0].name + ", "
+            else:
+                cart_filtered.update(cart[product])
+                value += cart[product][0].price * cart[product][1]
 
-        # self.session.commit()
+        if overs:
+            self.bot.send_message(self.chat.id, strings.fail_product_unavailable.format(
+                products=overs[:-2],
+                value=value))
+            if cart_filtered and value:
+                keyboard = telegram.ReplyKeyboardMarkup([[telegram.KeyboardButton(text=strings.continue_order)],
+                                                         [telegram.KeyboardButton(text=strings.payment_cancel)]],
+                                                        SMALL_BUTTONS,
+                                                        one_time_keyboard=True)
+                self.bot.send_message(self.chat.id, strings.ask_continue_order, reply_markup=keyboard)
+                message = self.__wait_for_specific_message([strings.continue_order,
+                                                            strings.payment_cancel])
+                if message == strings.continue_order:
+                    pass
+                elif message == strings.payment_cancel:
+                    # self.session.rollback()
+                    return
+            else:
+                self.bot.send_message(self.chat.id, strings.fail_all_products_unavailable)
+
         order.total_cost = value
-
         inline_keyboard_payment = telegram.InlineKeyboardMarkup([
             [telegram.InlineKeyboardButton(strings.payment_done,
                                            callback_data="payment_done")],
             [telegram.InlineKeyboardButton(strings.payment_cancel,
                                            callback_data="payment_cancel")],
         ])
+
         if MAX_VALUE >= value >= MIN_VALUE:
             self.bot.send_message(self.chat.id,
                                   strings.success_order_created.format(
-                                      link=order.create_link(value)
+                                      link=order.create_link(self.user.user_id, rand_id, value)
                                   ),
                                   reply_markup=inline_keyboard_payment)
         elif value > MAX_VALUE:
@@ -529,18 +548,54 @@ class ChatWorker(threading.Thread):
         # Wait for an user answer
         callback = self.__wait_for_inlinekeyboard_callback()
 
+        payment_attempt = 1
         if callback.data == "payment_done":
-            if order.user_id == 914781601 or order.check_payment(value):
-                self.bot.send_message(self.chat.id, strings.successfull_payment)
-            else:
-                self.bot.send_message(self.chat.id,
-                                      strings.fail_order_payment.format(order_id=order.order_id))
-                self.session.rollback()
-                # self.session.commit()
-                return
+            message = self.bot.send_message(self.chat.id, strings.order_wait_for_payment)
+            while True:
+                if order.check_payment(self.user.user_id, rand_id, value):
+                    self.bot.send_message(self.chat.id, strings.successful_payment)
+                    break
+                else:
+                    inline_keyboard_payment = telegram.InlineKeyboardMarkup([
+                        [telegram.InlineKeyboardButton(strings.payment_done,
+                                                       callback_data="another_payment_done")],
+                        [telegram.InlineKeyboardButton(strings.payment_cancel,
+                                                       callback_data="another_payment_cancel")],
+                        [telegram.InlineKeyboardButton(strings.menu_help,
+                                                       callback_data="menu_help")]
+                    ])
+                    if payment_attempt == 1:
+                        message = self.bot.send_message(self.chat.id,
+                                                        strings.fail_order_payment.format(order_id=str(rand_id),
+                                                                                          attempt=str(payment_attempt)),
+                                                        reply_markup=inline_keyboard_payment)
+                    else:
+                        self.bot.edit_message_text(chat_id=self.chat.id,
+                                                   text=strings.fail_order_payment.format(order_id=str(rand_id),
+                                                                                          attempt=str(payment_attempt)),
+                                                   message_id=message.message_id,
+                                                   reply_markup=inline_keyboard_payment)
 
-            # self.session.flush()
+                    callback = self.__wait_for_inlinekeyboard_callback()
+                    if callback.data == "another_payment_done":
+                        payment_attempt += 1
+                        continue
+                    elif callback.data == "menu_help":
+                        #self.session.rollback()
+                        self.__help_menu()
+                        return
+                    elif callback.data == "another_payment_cancel":
+                        #self.session.rollback()
+                        return
+
             self.session.commit()
+            for product in cart_filtered:
+                for i in range(0, cart[product][1]):
+                    order_item = db.OrderItem(product=cart[product][0],
+                                              order_id=order.order_id)
+                    self.session.add(order_item)
+            self.session.commit()
+
             admins = self.session.query(db.Admin).filter_by(live_mode=True).all()
             # Create the order keyboard
             order_keyboard = telegram.InlineKeyboardMarkup(
@@ -548,18 +603,15 @@ class ChatWorker(threading.Thread):
                     [telegram.InlineKeyboardButton(strings.menu_complete, callback_data="order_complete")],
                     [telegram.InlineKeyboardButton(strings.menu_refund, callback_data="order_refund")]
                 ])
+
             # Notify them of the new placed order
             for admin in admins:
                 self.bot.send_message(admin.user_id,
                                       f"{strings.notification_order_placed.format(order=order.get_text(self.session))}",
                                       reply_markup=order_keyboard)
         elif callback.data == "payment_cancel":
-            self.session.rollback()
-            # self.session.commit()
+            # self.session.rollback()
             return
-        # self.session.flush()
-        self.session.commit()
-
 
     def __order_status(self):
         """Display the status of the sent orders."""
@@ -720,13 +772,14 @@ class ChatWorker(threading.Thread):
             keyboard = []
             if self.admin.edit_products:
                 keyboard.append([strings.menu_products])
+                keyboard.append([strings.menu_available])
             if self.admin.receive_orders:
                 keyboard.append([strings.menu_orders])
             if self.admin.create_transactions:
-                keyboard.append([strings.menu_edit_credit])
-                keyboard.append([strings.menu_transactions, strings.menu_csv])
+                keyboard.append([strings.menu_csv])
             if self.admin.is_owner:
                 keyboard.append([strings.menu_edit_admins])
+                keyboard.append([strings.menu_notification])
             keyboard.append([strings.menu_user_mode])
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id, strings.conversation_open_admin_menu,
@@ -737,7 +790,8 @@ class ChatWorker(threading.Thread):
             selection = self.__wait_for_specific_message([strings.menu_products, strings.menu_orders,
                                                           strings.menu_user_mode, strings.menu_edit_credit,
                                                           strings.menu_transactions, strings.menu_csv,
-                                                          strings.menu_edit_admins])
+                                                          strings.menu_edit_admins, strings.menu_notification,
+                                                          strings.menu_available])
             # If the user has selected the Products option...
             if selection == strings.menu_products:
                 # Open the products menu
@@ -767,7 +821,92 @@ class ChatWorker(threading.Thread):
             # If the user has selected the .csv option...
             elif selection == strings.menu_csv:
                 # Generate the .csv file
-                self.__transactions_file()
+                self.__orders_file()
+            elif selection == strings.menu_notification:
+                self.__notification_menu()
+            elif selection == strings.menu_available:
+                self.__set_availability()
+
+    def __set_availability(self):
+        products = self.session.query(db.Product).all()
+        products_dict = {}
+
+        if not products:
+            self.bot.send_message(self.chat.id, strings.fail_have_no_products)
+            return
+
+        for product in products:
+            products_dict.update({product.name: product})
+
+        message = self.bot.send_message(self.chat.id, strings.ask_which_product_available)
+        # Start accepting edits
+        while True:
+            # Create the inline keyboard with the admin status
+            inline_keyboard = telegram.InlineKeyboardMarkup(
+                [[telegram.InlineKeyboardButton(f"{utils.boolmoji(not product.is_over)} {product.name}",
+                                                callback_data=product.name)] for product in products] +
+                [[telegram.InlineKeyboardButton(strings.menu_done, callback_data="cmd_done")]])
+
+            # Update the inline keyboard
+            self.bot.edit_message_reply_markup(message_id=message.message_id,
+                                               chat_id=self.chat.id,
+                                               reply_markup=inline_keyboard)
+            # Wait for an user answer
+            callback = self.__wait_for_inlinekeyboard_callback()
+            # Toggle the correct property
+            if callback.data in products_dict.keys():
+                product = products_dict[callback.data]
+                product.is_over = not product.is_over
+            elif callback.data == "cmd_done":
+                break
+        self.session.commit()
+
+    def __notification_menu(self):
+        all_users = [user.user_id for user in self.session.query(db.User).all()]
+        admins = [admin.user_id for admin in self.session.query(db.Admin).all()]
+        customers = list(filterfalse(lambda x: x in admins, all_users))
+        keyboard = telegram.ReplyKeyboardMarkup([[telegram.KeyboardButton(strings.notification_for_admins)],
+                                                 [telegram.KeyboardButton(strings.notification_for_customers)],
+                                                 [telegram.KeyboardButton(strings.notification_for_all)]],
+                                                SMALL_BUTTONS,
+                                                one_time_keyboard=True)
+        self.bot.send_message(self.chat.id, strings.ask_notification_group, reply_markup=keyboard)
+
+        groups = [strings.notification_for_admins,
+                  strings.notification_for_customers,
+                  strings.notification_for_all]
+
+        group = self.__wait_for_specific_message(groups)
+
+        self.bot.send_message(self.chat.id, strings.ask_notification_message)
+        message = self.__wait_for_regex(r"([\w\n]*)", cancellable=True)
+
+        answers = [strings.notification_done,
+                   strings.notification_cancel]
+
+        keyboard = telegram.ReplyKeyboardMarkup([[telegram.KeyboardButton(strings.notification_done)],
+                                                 [telegram.KeyboardButton(strings.notification_cancel)]],
+                                                SMALL_BUTTONS,
+                                                one_time_keyboard=True)
+        selected_users = []
+        self.bot.send_message(self.chat.id,
+                              strings.notification_preview,
+                              reply_markup=keyboard)
+
+        selection = self.__wait_for_specific_message(answers)
+        print(message)
+        if selection == strings.notification_done:
+            if group == strings.notification_for_admins:
+                selected_users = admins
+            elif group == strings.notification_for_customers:
+                selected_users = customers
+            elif group == strings.notification_for_all:
+                selected_users = all_users
+            for user in selected_users:
+                self.bot.send_message(user, message)
+                # pass
+        elif selection == strings.notification_cancel:
+            return
 
     def __products_menu(self):
         """Display the admin menu to select a product to edit."""
@@ -1059,9 +1198,9 @@ class ChatWorker(threading.Thread):
     def __help_menu(self):
         """Help menu. Allows the user to ask for assistance, get a guide or see some info about the bot."""
         # Create a keyboard with the user help menu
-        keyboard = [[telegram.KeyboardButton(strings.menu_guide)],
-                    [telegram.KeyboardButton(strings.menu_contact_shopkeeper)],
-                    [telegram.KeyboardButton(strings.menu_cancel)]]
+        keyboard = [  # [telegram.KeyboardButton(strings.menu_guide)],
+            [telegram.KeyboardButton(strings.menu_contact_shopkeeper)],
+            [telegram.KeyboardButton(strings.menu_cancel)]]
         # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
         self.bot.send_message(self.chat.id,
                               strings.conversation_open_help_menu,
@@ -1137,6 +1276,47 @@ class ChatWorker(threading.Thread):
             elif selection.data == "cmd_done":
                 # Break the loop
                 break
+
+    def __orders_file(self):
+        orders = self.session.query(db.Order).order_by(db.Order.order_id.asc()).all()
+        try:
+            with open(f"orders_{self.chat.id}.csv", "x"):
+                pass
+        except IOError:
+            pass
+        with open(f"orders_{self.chat.id}.csv", "wb") as file:
+            file.write((f"Номер заказа;"
+                        f"ID пользователя;"
+                        f"Дата;"
+                        f"Причина возврата;"
+                        f"Телефон;"
+                        f"Цена;"
+                        f"Возврат?;"
+                        f"Позиция;\n").encode("utf-8"))
+            for order in orders:
+                # print(order.get_text(self.session))
+                item_quantity = 0
+                file.write((f"{order.order_id if order.order_id is not None else ''};"
+                            f"{order.user_id if order.user_id is not None else ''};"
+                            f"{order.creation_date if order.creation_date is not None else ''};"
+                            f"{order.refund_reason if order.refund_reason is not None else ''};"
+                            f"{order.notes if order.notes is not None else ''};"
+                            f"{order.total_cost if order.total_cost is not None else ''};"
+                            f"{order.refunded if order.refunded is not None else ''};").encode("utf-8"))
+                for item in order.items:
+                    prefix = ";" * 7 if item_quantity != 0 else ""
+                    file.write(f"{prefix}{item if item is not None else ''};\n".encode("utf-8"))
+                    item_quantity += 1
+        self.bot.send_message(self.chat.id, strings.csv_caption)
+        # Reopen the file for reading
+        with open(f"orders_{self.chat.id}.csv") as file:
+            # Send the file via a manual request to Telegram
+            requests.post(f"https://api.telegram.org/bot{configloader.config['Telegram']['token']}/sendDocument",
+                          files={"document": file},
+                          params={"chat_id": self.chat.id,
+                                  "parse_mode": "HTML"})
+        # Delete the created file
+        # os.remove(f"orders_{self.chat.id}.csv")
 
     def __transactions_file(self):
         """Generate a .csv file containing the list of all transactions."""
@@ -1249,9 +1429,10 @@ class ChatWorker(threading.Thread):
         """Handle the graceful stop of the thread."""
         # If the session has expired...
         if stop_trigger.reason == "timeout":
+            pass
             # Notify the user that the session has expired and remove the keyboard
-            self.bot.send_message(self.chat.id, strings.conversation_expired,
-                                  reply_markup=telegram.ReplyKeyboardRemove())
+            # self.bot.send_message(self.chat.id, strings.conversation_expired,
+            #                       reply_markup=telegram.ReplyKeyboardRemove())
         # If a restart has been requested...
         # Do nothing.
         # Close the database session

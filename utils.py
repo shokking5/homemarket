@@ -19,7 +19,7 @@ if config["Error Reporting"]["sentry_token"] != \
     import raven
 
     sentry_client = raven.Client(config["Error Reporting"]["sentry_token"],
-                                 release=raven.fetch_git_sha(os.path.dirname(__file__)),
+                                 #release=raven.fetch_git_sha(os.path.dirname(__file__)),
                                  environment="Dev" if __debug__ else "Prod")
 else:
     sentry_client = None

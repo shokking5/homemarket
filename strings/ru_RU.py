@@ -4,6 +4,9 @@
 # English translation by https://github.com/DarrenWestwood
 
 # Currency symbol
+yes = "Да"
+no = "Нет"
+
 currency_symbol = "₽"
 
 # Positioning of the currency symbol
@@ -52,8 +55,8 @@ transactions_page = "Страница <b>{page}</b>:\n" \
 # transactions.csv caption
 csv_caption = "Этот файл 📄 .csv содержит все заказы, выгруженные из базы данных бота.\n" \
               "Вы можете открыть этот файл, например, с помощью LibreOffice Calc" \
-
-# Conversation: the start command was sent and the bot should welcome the user
+ \
+    # Conversation: the start command was sent and the bot should welcome the user
 conversation_after_start = "Hello!\n" \
                            "Welcome to greed!\n" \
                            "What you see here is the 🅱️ <b>Beta</b> version of the software.\n" \
@@ -62,7 +65,7 @@ conversation_after_start = "Hello!\n" \
                            " happened at https://github.com/Steffo99/greed/issues."
 
 # Conversation: to send an inline keyboard you need to send a message with it
-conversation_open_user_menu = "Что дальше?\n"
+conversation_open_user_menu = "Выберите следующий пункт меню\n"
 
 # Conversation: like above, but for administrators
 conversation_open_admin_menu = "Вы 💼 <b>Admin</b> этого магазина!\n" \
@@ -94,8 +97,8 @@ conversation_confirm_cart = "🛒 Сейчас в вашей корзине:\n" 
                             "{product_list}" \
                             "Итого: <b>{total_cost}</b>\n" \
                             "\n" \
-
-# Conversation: the user activated the live orders mode
+ \
+    # Conversation: the user activated the live orders mode
 conversation_live_orders_start = " Вы в режите <b>Live Orders</b>\n" \
                                  "Все новые заказы пользователей будут появляться здесь в реальном времени" \
                                  ". Вы можете завершить кнопкой ✅ Завершить" \
@@ -123,6 +126,8 @@ menu_order = "🛒 Меню"
 # User menu: order status
 menu_order_status = "🛍 Мои заказы"
 
+menu_notification = "📨 Отправить уведомление пользователям"
+
 # User menu: add credit
 menu_add_credit = "💵 Добавить деньжат"
 
@@ -140,6 +145,8 @@ menu_products = "📝️ Продукты"
 
 # Admin menu: orders
 menu_orders = "📦 Заказы"
+
+menu_available = "📖 Изменить доступность продукта"
 
 # Menu: transactions
 menu_transactions = "💳 Список платежей"
@@ -196,10 +203,10 @@ menu_next = "▶️ Далее"
 menu_previous = "◀️ Назад"
 
 # Menu: contact the shopkeeper
-menu_contact_shopkeeper = "👨‍💼 Связаться с магазином"
+menu_contact_shopkeeper = "👨💼 Связаться с магазином"
 
 # Menu: generate transactions .csv file
-menu_csv = "📄.csv"
+menu_csv = "📄 Выгрузить базу данных"
 
 # Menu: edit admins list
 menu_edit_admins = "🏵 Редактировать администраторов"
@@ -244,11 +251,16 @@ ask_product_image = "🖼 Какое изображение будет у про
                     "<i>Просто отправьте мне фото, или не отправляйте, как хотите. В любой момент вы сможете отредактировать данный продукт </i>"
 
 # Order product: notes?
-ask_order_notes = " Напишите свой адрес и номер телефона\n" \
+ask_order_notes = " Напишите свой номер телефона\n <b>Учитывайте, что мы доставляем только в Школу 21 в Москве</b>" \
                   "\n" \
-
-# Refund product: reason?
+ \
+    # Refund product: reason?
 ask_refund_reason = " Напишите, почему вы хотите вернуть заказ?.\n"
+
+ask_which_product_available = f" Выберите {emoji_completed}, чтобы сделать продукт доступным для покупателей" \
+                              f". Или выберите {emoji_no}, чтобы сделать его недоступным\n\n" \
+                              "<i> Продукт не удалится из базы, он просто станет невидим для покупателя, " \
+                              "до тех пор, пока вы не сделаете его доступным</i>"
 
 # Edit credit: notes?
 ask_transaction_notes = " Attach a note to this transaction.\n" \
@@ -261,6 +273,11 @@ ask_credit = "How much do you want to change the customer's credit?\n" \
              "<i>Send a message containing the amount.\n" \
              "Put a mark </i><code>+</code><i> if you want to add credit to the customer's account." \
              " or a sign </i><code>-</code><i>  you want to deduce it.</i>"
+ask_continue_order = " Вы хотите продолжить?"
+
+ask_notification_group = "👤 Кто увидит это сообщение?"
+
+ask_notification_message = "❓ Что вы хотите написать?"
 
 # Header for the edit admin message
 admin_properties = "<b>Права администратора {name}:</b>"
@@ -303,6 +320,13 @@ payment_cc_amount = "How many funds do you want to add to your wallet?\n" \
                     "<i>Select an amount with the buttons below, or enter it manually with the keyboard" \
                     " normal.</i>"
 
+payment_label = "{order_id}:{user_id}"
+payment_sign = "{amount}&{label}&{secret}"
+payment_message = "label={label}&amount={amount}&sha1_hash={sha1_hash}"
+
+path_check_payment = "/get_payment/"
+server_answer_success_payment = "True"
+
 # Payment: add funds invoice title
 payment_invoice_title = "Adding funds"
 
@@ -324,15 +348,22 @@ notification_order_completed = "Ваш заказ собран!\n" \
                                "{order}"
 
 # Notification: order has been refunded
-notification_order_refunded = "Your order has been refunded!\n" \
+notification_order_refunded = "Ваш заказ был возвращен!\n" \
                               "{order}"
+
+notification_for_admins = "💼 Только администраторы"
+notification_for_customers = "👨 Только покупатели"
+notification_for_all = "👤👤 Все"
+notification_done = "📨 Отправить"
+notification_cancel = f"{emoji_no} Отменить"
+notification_preview = f" Вы уверены?"
 
 # Notification: a manual transaction was applied
 notification_transaction_created = "ℹ️  A new transaction has been applied to your wallet:\n" \
                                    "{transaction}"
 
 # Refund reason
-refund_reason = "Refund reason:\n" \
+refund_reason = "Причина возврата:\n" \
                 "{reason}"
 
 # Info: informazioni sul bot
@@ -351,32 +382,42 @@ contact_shopkeeper = "В настоящее время, вам могут пом
                      "{shopkeepers}\n" \
                      "<i>Нажмите, чтобы связаться в Telegram.</i>"
 
+continue_order = "Продолжить"
+
 # Success: product has been added/edited to the database
 success_product_edited = "✅ Продукт успешно изменен/добавлен!"
 
 # Success: product has been added/edited to the database
 success_product_deleted = "✅ Продукт успешно удален!"
 
-# Success: order has been created
+# Success: order has been create
+
 success_order_created = "✅ Заказ обработан, пожалуйста, для оплаты следуйте по ссылке\n" \
                         "Подтвердите оплату кнопкой \"Оплачено\"\n" \
                         "\n" \
                         "{link}"
+fail_all_products_unavailable = " К сожалению все продукты в вашей корзине в данный момент недоступны"
 
-fail_order_payment = "Оплата за заказ {order_id} не прошла, если вы уверены, что оплатили заказ, обратитесь в службу " \
-                     "поддержки "
+fail_product_unavailable = " К сожалению следующие продукты, уже недоступы: {products}\n\n Текущий итог: {value}"
 
-fail_order_too_big = "Сумма вашего заказа превышает допустимое значение - {max}"
+fail_order_payment = "❌ Попытка #{attempt}. Оплата за заказ #{order_id} не прошла. Попробуйте еще раз или обратитесь " \
+                     "в службу поддержки "
 
-fail_order_too_small = "Слишком маленький заказ, минимальная сумма - {min} рублей"
+fail_order_too_big = " Сумма вашего заказа превышает допустимое значение - {max}"
+
+fail_order_too_small = " Слишком маленький заказ, минимальная сумма - {min}"
+
+fail_have_no_products = f"{emoji_no} Пока что ни одного продукта не добавлено"
+
+order_wait_for_payment = "🕐 Проверка заказа может занять некоторое время, пожалуйста, подождите"
 
 # Success: order was marked as completed
 success_order_completed = "✅ Вы отметили заказ #{order_id} как завершенный"
 
 # Success: order was refunded successfully
-success_order_refunded = "✴️ Order #{order_id} has been successfully refunded."
+success_order_refunded = "✴️ Заказ #{order_id} был успешно возвращен."
 
-successfull_payment = "Оплата совершена, ожидайте курьера"
+successful_payment = "Оплата совершена, ожидайте курьера"
 
 # Success: transaction was created successfully
 success_transaction_created = "✅ The transaction was created successfully!\n" \

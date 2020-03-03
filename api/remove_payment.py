@@ -20,13 +20,15 @@ from configloader import config
 SERVER_URL = config["Config"]["server_url"]
 SECRET = config["Credit Card"]["yandex_money_secret"]
 
-def check_payment(amount, label, path="/get_payment/"):
+def remove(server_url, amount, label, path="/remove_payment/"):
+    server_url = server_url if server_url else SERVER_URL
     signed_message = sign_message(label=label, amount=amount,
             only_label_amount = True)
 
-    resp = requests.post(SERVER_URL + path, data = signed_message).text
+    resp = requests.post(server_url + path, data = signed_message).text
     return resp
 
 if __name__ == "__main__":
-        print(check_payment(input("amount > ").strip(),
+        print(remove(input("server url (may skeep) > ").strip(),
+                            input("amount > ").strip(),
                             input("lable > ").strip()))
