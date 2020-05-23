@@ -1,4 +1,5 @@
 venv
+bfg-1.13.0.jar
 *.pyc
 staticfiles
 .env
