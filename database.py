@@ -26,7 +26,7 @@ TableDeclarativeBase = declarative_base(bind=engine)
 # Create a Session class able to initialize database sessions
 Session = sessionmaker()
 
-SERVER_URL = configloader.config["Config"]["SERVER_URL"]
+SERVER_URL = configloader.config["Config"]["server_url"]
 SUCCESS_URL = configloader.config["Config"]["success_url"]
 SECRET = configloader.config["Credit Card"]["yandex_money_secret"]
 MIN_VALUE = int(configloader.config["Credit Card"]["min_amount"])
@@ -280,6 +280,7 @@ class Order(TableDeclarativeBase):
             pass
         return False
 
+
     def create_link(self, user_id, rand_id, value: int):
         if value > 0 and (value >= MIN_VALUE or MIN_VALUE == 0) and (value <= MAX_VALUE or MAX_VALUE == 0):
             label = strings.payment_label.format(order_id=rand_id,
@@ -294,10 +295,15 @@ class Order(TableDeclarativeBase):
 
             resp = requests.post(YANDEX_MONEY_URL, data=data)
             print(f"New order:\n  label={self.order_id}:{self.user.user_id}\n  amount={value}")
-            request_id = re.search("[\w]{8}-[\w]{4}-[\w]{4}-[\w]{4}-[\w]{4,}", resp.url).group(0)
-            link = f"https://money.yandex.ru/new/transfer/quickpay?requestId={request_id}"
-            print(f"label = {label}")
-            return link
+            request_id = re.search("[\w]{8}-[\w]{4}-[\w]{4}-[\w]{4}-[\w]{4,}", resp.url)
+            if request_id:
+                request_id = request_id.group(0)
+                link = f"https://money.yandex.ru/new/transfer/quickpay?requestId={request_id}"
+                print(f"label = {label}")
+                return link
+            else:
+                return None
+
 
     def get_text(self, session, user=False):
         items = ""

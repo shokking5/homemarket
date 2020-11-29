@@ -35,7 +35,7 @@ def main():
     next_update = None
 
     # Notify on the console that the bot is starting
-    print("greed-bot is now starting!")
+    print("Homemarket started!")
 
     # Main loop of the program
     while True:

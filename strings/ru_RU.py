@@ -306,6 +306,8 @@ edit_current_value = "Текущая цена:\n" \
                      "<i>Нажмите Далее, чтобы пропустить изменение цены</i>"
 
 # Payment: cash payment info
+payment_cash_accept = "Оплачу наличными"
+
 payment_done = "Оплачено"
 
 payment_cancel = "Отмена"
@@ -396,6 +398,7 @@ success_order_created = "✅ Заказ обработан, пожалуйста
                         "Подтвердите оплату кнопкой \"Оплачено\"\n" \
                         "\n" \
                         "{link}"
+fail_creating_payment_link = "❌ К сожалению сейчас оплата по карте недоступна, но вы можете оплатить наличными курьеру"
 fail_all_products_unavailable = " К сожалению все продукты в вашей корзине в данный момент недоступны"
 
 fail_product_unavailable = " К сожалению следующие продукты, уже недоступы: {products}\n\n Текущий итог: {value}"

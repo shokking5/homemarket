@@ -494,22 +494,20 @@ class ChatWorker(threading.Thread):
 
         value = 0
         overs = ""
-        cart_filtered = {}
         rand_id = randint(100, 10000000)
         products = self.session.query(db.Product).filter_by(is_over=False, deleted=False).all()
 
         for product in cart:
             if cart[product][0] not in products:
                 overs += cart[product][0].name + ", "
+                cart.pop(product)
             else:
-                cart_filtered.update(cart[product])
                 value += cart[product][0].price * cart[product][1]
 
         if overs:
             self.bot.send_message(self.chat.id, strings.fail_product_unavailable.format(
-                products=overs[:-2],
-                value=value))
-            if cart_filtered and value:
+                products=overs[:-2], value=value))
+            if cart and value:
                 keyboard = telegram.ReplyKeyboardMarkup([[telegram.KeyboardButton(text=strings.continue_order)],
                                                          [telegram.KeyboardButton(text=strings.payment_cancel)]],
                                                         SMALL_BUTTONS,
@@ -532,13 +530,25 @@ class ChatWorker(threading.Thread):
             [telegram.InlineKeyboardButton(strings.payment_cancel,
                                            callback_data="payment_cancel")],
         ])
+        inline_keyboard_cash_payment = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(strings.payment_cash_accept,
+                                           callback_data="payment_cash_accept")],
+            [telegram.InlineKeyboardButton(strings.payment_cancel,
+                                           callback_data="payment_cancel")],
+        ])
 
         if MAX_VALUE >= value >= MIN_VALUE:
-            self.bot.send_message(self.chat.id,
+            link = order.create_link(self.user.user_id, rand_id, value)
+            if link:
+                self.bot.send_message(self.chat.id,
                                   strings.success_order_created.format(
-                                      link=order.create_link(self.user.user_id, rand_id, value)
+                                      link=link
                                   ),
                                   reply_markup=inline_keyboard_payment)
+            else:
+                self.bot.send_message(self.chat.id,
+                                  strings.fail_creating_payment_link,
+                                  reply_markup=inline_keyboard_cash_payment)
         elif value > MAX_VALUE:
             self.bot.send_message(self.chat.id, strings.fail_order_too_big.format(max=MAX_VALUE))
             return
@@ -549,7 +559,11 @@ class ChatWorker(threading.Thread):
         callback = self.__wait_for_inlinekeyboard_callback()
 
         payment_attempt = 1
-        if callback.data == "payment_done":
+        if callback.data == "payment_cancel":
+            return
+        elif callback.data == "payment_cash_accept":
+            pass
+        elif callback.data == "payment_done":
             message = self.bot.send_message(self.chat.id, strings.order_wait_for_payment)
             while True:
                 if order.check_payment(self.user.user_id, rand_id, value):
@@ -587,31 +601,25 @@ class ChatWorker(threading.Thread):
                     elif callback.data == "another_payment_cancel":
                         #self.session.rollback()
                         return
+        self.session.commit()
+        for product in cart:
+            for i in range(0, cart[product][1]):
+                order_item = db.OrderItem(product=cart[product][0],
+                                          order_id=order.order_id)
+                self.session.add(order_item)
+        self.session.commit()
 
-            self.session.commit()
-            for product in cart_filtered:
-                for i in range(0, cart[product][1]):
-                    order_item = db.OrderItem(product=cart[product][0],
-                                              order_id=order.order_id)
-                    self.session.add(order_item)
-            self.session.commit()
-
-            admins = self.session.query(db.Admin).filter_by(live_mode=True).all()
-            # Create the order keyboard
-            order_keyboard = telegram.InlineKeyboardMarkup(
-                [
-                    [telegram.InlineKeyboardButton(strings.menu_complete, callback_data="order_complete")],
-                    [telegram.InlineKeyboardButton(strings.menu_refund, callback_data="order_refund")]
-                ])
-
-            # Notify them of the new placed order
-            for admin in admins:
-                self.bot.send_message(admin.user_id,
-                                      f"{strings.notification_order_placed.format(order=order.get_text(self.session))}",
-                                      reply_markup=order_keyboard)
-        elif callback.data == "payment_cancel":
-            # self.session.rollback()
-            return
+        admins = self.session.query(db.Admin).filter_by(live_mode=True).all()
+        order_keyboard = telegram.InlineKeyboardMarkup(
+            [
+                [telegram.InlineKeyboardButton(strings.menu_complete, callback_data="order_complete")],
+                [telegram.InlineKeyboardButton(strings.menu_refund, callback_data="order_refund")]
+            ])
+        for admin in admins:
+            self.bot.send_message(admin.user_id,
+                                  f"{strings.notification_order_placed.format(order=order.get_text(self.session))}",
+                                  reply_markup=order_keyboard)
+        return
 
     def __order_status(self):
         """Display the status of the sent orders."""
